@@ -282,6 +282,19 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
         reason = match[0];
       }
     }
+    if (!reason.startsWith("http")) {
+      if (errorText.includes("RESTRICTED_AGE") || errorText.includes("18 years old") || errorText.includes("verified your age")) {
+        const email = conn?.email;
+        reason = email
+          ? `https://accounts.google.com/AccountChooser?Email=${encodeURIComponent(email)}&continue=https://myaccount.google.com/age-verification`
+          : "https://myaccount.google.com/age-verification";
+      } else if (errorText.includes("Verify your account") || errorText.includes("VALIDATION_REQUIRED")) {
+        const email = conn?.email;
+        reason = email
+          ? `https://accounts.google.com/AccountChooser?Email=${encodeURIComponent(email)}&continue=https://developers.google.com/gemini-code-assist/auth/auth_success_gemini`
+          : "https://accounts.google.com/";
+      }
+    }
   }
   const lockUpdate = buildModelLockUpdate(githubResetAtMs ? null : model, cooldownMs);
 

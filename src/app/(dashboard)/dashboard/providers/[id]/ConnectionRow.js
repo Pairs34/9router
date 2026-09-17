@@ -9,6 +9,7 @@ import CooldownTimer from "./CooldownTimer";
 export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMoveUp, onMoveDown, onToggleActive, onUpdateProxy, onEdit, onDelete, oneByOneStatus = null, autoPing = null }) {
   const [showProxyDropdown, setShowProxyDropdown] = useState(false);
   const [updatingProxy, setUpdatingProxy] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
   const proxyDropdownRef = useRef(null);
 
   const proxyPoolMap = new Map((proxyPools || []).map((pool) => [pool.id, pool]));
@@ -66,6 +67,24 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
     } finally {
       setUpdatingProxy(false);
       setShowProxyDropdown(false);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    if (testingConnection) return;
+    setTestingConnection(true);
+    try {
+      const res = await fetch(`/api/providers/${connection.id}/test`, { method: "POST" });
+      const data = await res.json();
+      if (data.valid) {
+        window.location.reload();
+      } else {
+        alert(data.error ? `Doğrulama henüz tamamlanmadı: ${data.error}` : "Hesap henüz aktifleşmedi.");
+      }
+    } catch (e) {
+      alert(`Test hatası: ${e.message}`);
+    } finally {
+      setTestingConnection(false);
     }
   };
 
@@ -194,11 +213,29 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
                   >
                     Kopyala
                   </button>
+                  <button
+                    type="button"
+                    disabled={testingConnection}
+                    onClick={handleTestConnection}
+                    className="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-xs font-medium text-emerald-500 hover:bg-emerald-500/20 disabled:opacity-50"
+                  >
+                    {testingConnection ? "..." : "Kontrol Et"}
+                  </button>
                 </div>
               ) : (
-                <span className="max-w-full truncate text-xs text-red-500 sm:max-w-[300px]" title={connection.lastError}>
-                  {connection.lastError}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="max-w-full truncate text-xs text-red-500 sm:max-w-[300px]" title={connection.lastError}>
+                    {connection.lastError}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={testingConnection}
+                    onClick={handleTestConnection}
+                    className="rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary hover:bg-primary/20 disabled:opacity-50"
+                  >
+                    {testingConnection ? "..." : "Kontrol Et"}
+                  </button>
+                </div>
               )
             )}
             <span className="text-xs text-text-muted">#{connection.priority}</span>
@@ -277,6 +314,17 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
               </button>
             </Tooltip>
           )}
+          <button
+            onClick={handleTestConnection}
+            disabled={testingConnection}
+            className="flex flex-col items-center rounded px-2 py-1 text-text-muted hover:bg-black/5 hover:text-primary dark:hover:bg-white/5 disabled:opacity-50"
+            title="Test connection"
+          >
+            <span className="material-symbols-outlined text-[18px]">
+              {testingConnection ? "progress_activity" : "science"}
+            </span>
+            <span className="text-[10px] leading-tight">Test</span>
+          </button>
           <button onClick={onEdit} className="flex flex-col items-center rounded px-2 py-1 text-text-muted hover:bg-black/5 hover:text-primary dark:hover:bg-white/5">
             <span className="material-symbols-outlined text-[18px]">edit</span>
             <span className="text-[10px] leading-tight">Edit</span>

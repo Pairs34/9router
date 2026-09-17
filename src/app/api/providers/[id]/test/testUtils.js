@@ -210,14 +210,31 @@ async function probeCloudCodeAssistAccess(connection, accessToken, effectiveProx
     const bodyText = await res.text().catch(() => "");
     try {
       const parsed = JSON.parse(bodyText);
-      const hasStandardTier = parsed.currentTier?.id === "standard-tier" ||
-        (parsed.allowedTiers || []).some(t => t.id === "standard-tier" || t.isDefault);
-      if (!hasStandardTier) {
-        const ineligible = (parsed.ineligibleTiers || []).find((t) => t.reasonCode === "VALIDATION_REQUIRED");
-        if (ineligible?.validationUrl) {
+      const hasCurrentTier = !!parsed.currentTier?.id;
+      if (!hasCurrentTier) {
+        const ineligible = (parsed.ineligibleTiers || [])[0];
+        if (ineligible) {
+          if (ineligible.validationUrl) {
+            return {
+              valid: false,
+              error: ineligible.validationUrl,
+              status: 403,
+            };
+          }
+          if (ineligible.reasonCode === "RESTRICTED_AGE" || (ineligible.reasonMessage && ineligible.reasonMessage.includes("18 years"))) {
+            const email = connection.email;
+            const ageUrl = email
+              ? `https://accounts.google.com/AccountChooser?Email=${encodeURIComponent(email)}&continue=https://myaccount.google.com/age-verification`
+              : "https://myaccount.google.com/age-verification";
+            return {
+              valid: false,
+              error: ageUrl,
+              status: 403,
+            };
+          }
           return {
             valid: false,
-            error: ineligible.validationUrl,
+            error: ineligible.reasonMessage || ineligible.reasonCode,
             status: 403,
           };
         }
@@ -244,6 +261,14 @@ async function probeCloudCodeAssistAccess(connection, accessToken, effectiveProx
       const match = bodyText.match(/https:\/\/(?:accounts\.google\.com[^\s"'\\]+|[^\s"'\\]*validation[^\s"'\\]*)/);
       if (match) {
         errorMsg = match[0];
+      }
+    }
+    if (!errorMsg.startsWith("http")) {
+      if (bodyText.includes("RESTRICTED_AGE") || bodyText.includes("18 years old") || bodyText.includes("verified your age")) {
+        const email = connection.email;
+        errorMsg = email
+          ? `https://accounts.google.com/AccountChooser?Email=${encodeURIComponent(email)}&continue=https://myaccount.google.com/age-verification`
+          : "https://myaccount.google.com/age-verification";
       }
     }
   }
