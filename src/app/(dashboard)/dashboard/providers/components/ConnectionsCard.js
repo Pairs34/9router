@@ -120,7 +120,27 @@ function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMov
             {hasAnyProxy && <Badge variant={proxyBadgeVariant} size="sm">Proxy</Badge>}
             {isCooldown && connection.isActive !== false && <CooldownTimer until={modelLockUntil} />}
             {connection.lastError && connection.isActive !== false && (
-              <span className="text-xs text-red-500 truncate max-w-[300px]" title={connection.lastError}>{connection.lastError}</span>
+              connection.lastError.startsWith("http") ? (
+                <div className="flex items-center gap-1.5">
+                  <a
+                    href={connection.lastError}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-500 hover:bg-amber-500/20 underline"
+                  >
+                    Doğrula (Aç)
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard.writeText(connection.lastError)}
+                    className="rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-500 hover:bg-amber-500/20"
+                  >
+                    Kopyala
+                  </button>
+                </div>
+              ) : (
+                <span className="text-xs text-red-500 truncate max-w-[300px]" title={connection.lastError}>{connection.lastError}</span>
+              )
             )}
             <span className="text-xs text-text-muted">#{connection.priority}</span>
           </div>

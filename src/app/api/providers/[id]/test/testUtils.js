@@ -206,7 +206,21 @@ async function probeCloudCodeAssistAccess(connection, accessToken, effectiveProx
     body: CLOUD_CODE_ASSIST_TEST_BODY,
   }, effectiveProxy);
 
-  if (res.ok) return { valid: true, error: null };
+  if (res.ok) {
+    const bodyText = await res.text().catch(() => "");
+    try {
+      const parsed = JSON.parse(bodyText);
+      const ineligible = (parsed.ineligibleTiers || []).find((t) => t.reasonCode === "VALIDATION_REQUIRED");
+      if (ineligible?.validationUrl) {
+        return {
+          valid: false,
+          error: ineligible.validationUrl,
+          status: 403,
+        };
+      }
+    } catch {}
+    return { valid: true, error: null };
+  }
 
   const bodyText = await res.text().catch(() => "");
   return {
