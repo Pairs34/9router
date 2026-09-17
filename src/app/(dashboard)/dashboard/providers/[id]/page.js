@@ -715,6 +715,19 @@ export default function ProviderDetailPage() {
             failed += 1;
           }
 
+          setConnections((prev) =>
+            prev.map((c) =>
+              c.id === connection.id
+                ? {
+                    ...c,
+                    testStatus: valid ? "active" : "error",
+                    lastError: valid ? null : (data.error || c.lastError),
+                    lastErrorAt: valid ? null : new Date().toISOString(),
+                  }
+                : c
+            )
+          );
+
           setOneByOneResults((prev) => ({
             ...prev,
             [connection.id]: {
@@ -724,6 +737,18 @@ export default function ProviderDetailPage() {
           }));
         } catch (error) {
           failed += 1;
+          setConnections((prev) =>
+            prev.map((c) =>
+              c.id === connection.id
+                ? {
+                    ...c,
+                    testStatus: "error",
+                    lastError: error.message || "Test failed",
+                    lastErrorAt: new Date().toISOString(),
+                  }
+                : c
+            )
+          );
           setOneByOneResults((prev) => ({
             ...prev,
             [connection.id]: {
@@ -750,6 +775,7 @@ export default function ProviderDetailPage() {
       setOneByOneRunning(false);
       setOneByOneStopping(false);
       stopOneByOneRef.current = false;
+      await fetchConnections();
     }
   };
 

@@ -210,34 +210,40 @@ async function probeCloudCodeAssistAccess(connection, accessToken, effectiveProx
     const bodyText = await res.text().catch(() => "");
     try {
       const parsed = JSON.parse(bodyText);
-      const hasCurrentTier = !!parsed.currentTier?.id;
-      if (!hasCurrentTier) {
-        const ineligible = (parsed.ineligibleTiers || [])[0];
-        if (ineligible) {
-          if (ineligible.validationUrl) {
-            return {
-              valid: false,
-              error: ineligible.validationUrl,
-              status: 403,
-            };
-          }
-          if (ineligible.reasonCode === "RESTRICTED_AGE" || (ineligible.reasonMessage && ineligible.reasonMessage.includes("18 years"))) {
-            const email = connection.email;
-            const ageUrl = email
-              ? `https://accounts.google.com/AccountChooser?Email=${encodeURIComponent(email)}&continue=https://myaccount.google.com/age-verification`
-              : "https://myaccount.google.com/age-verification";
-            return {
-              valid: false,
-              error: ageUrl,
-              status: 403,
-            };
-          }
+      const ineligible = (parsed.ineligibleTiers || []).find((t) => t.validationUrl || t.reasonCode === "RESTRICTED_AGE" || t.reasonCode === "VALIDATION_REQUIRED") || (parsed.ineligibleTiers || [])[0];
+      if (ineligible) {
+        if (ineligible.validationUrl) {
           return {
             valid: false,
-            error: ineligible.reasonMessage || ineligible.reasonCode,
+            error: ineligible.validationUrl,
             status: 403,
           };
         }
+        if (ineligible.reasonCode === "RESTRICTED_AGE" || (ineligible.reasonMessage && ineligible.reasonMessage.includes("18 years"))) {
+          const email = connection.email;
+          const ageUrl = email
+            ? `https://accounts.google.com/AccountChooser?Email=${encodeURIComponent(email)}&continue=https://myaccount.google.com/age-verification`
+            : "https://myaccount.google.com/age-verification";
+          return {
+            valid: false,
+            error: ageUrl,
+            status: 403,
+          };
+        }
+        return {
+          valid: false,
+          error: ineligible.reasonMessage || ineligible.reasonCode,
+          status: 403,
+        };
+      }
+
+      const hasCurrentTier = !!parsed.currentTier?.id;
+      if (!hasCurrentTier) {
+        return {
+          valid: false,
+          error: "No active tier assigned to this account",
+          status: 403,
+        };
       }
     } catch {}
     return { valid: true, error: null };
