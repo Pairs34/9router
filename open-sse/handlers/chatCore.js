@@ -115,28 +115,22 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     }
   }
 
-  const clientRequestedStreaming = body.stream === true || sourceFormat === FORMATS.ANTIGRAVITY || sourceFormat === FORMATS.GEMINI || sourceFormat === FORMATS.GEMINI_CLI;
+  const acceptHeader = clientRawRequest?.headers?.accept || "";
+  const clientPrefersJson = acceptHeader.includes("application/json");
+  const clientPrefersSSE = acceptHeader.includes("text/event-stream");
+  const clientRequestedStreaming = body.stream === true || (clientPrefersSSE && !clientPrefersJson) || sourceFormat === FORMATS.ANTIGRAVITY || sourceFormat === FORMATS.GEMINI || sourceFormat === FORMATS.GEMINI_CLI;
   const providerRequiresStreaming = PROVIDERS[provider]?.forceStream === true;
-  let stream = providerRequiresStreaming ? true : (body.stream !== false);
+  let stream = providerRequiresStreaming ? true : Boolean(clientRequestedStreaming);
 
-  // Image generation models require non-streaming (Google v1internal:generateContent)
   const modelType = getModelType(alias, model);
   const isImageGenModel = modelType === "imageGen" || /image|imagen|image-generation/i.test(model);
   if (isImageGenModel && (provider === "antigravity" || provider === "gemini-cli")) {
     stream = false;
   }
 
-  // DeepSeek-TUI: interactive TUI panel sends stream:true and needs SSE.
-  // Non-interactive mode (-p flag) sends without stream and can't parse SSE.
-  // Only force non-streaming when client didn't explicitly request it.
   const detectedTool = detectClientTool(clientRawRequest?.headers || {}, body);
   if (detectedTool === "deepseek-tui" && body.stream !== true) stream = false;
 
-  // Check client Accept header preference for non-streaming requests
-  // This fixes AI SDK compatibility where clients send Accept: application/json
-  const acceptHeader = clientRawRequest?.headers?.accept || "";
-  const clientPrefersJson = acceptHeader.includes("application/json");
-  const clientPrefersSSE = acceptHeader.includes("text/event-stream");
   if (clientPrefersJson && !clientPrefersSSE && body.stream !== true && !providerRequiresStreaming) {
     stream = false;
   }
@@ -478,14 +472,11 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   const appendLog = (extra) => appendRequestLog({ model, provider, connectionId, ...extra }).catch(() => { });
   const trackDone = () => trackPendingRequest(model, provider, connectionId, false);
 
-  // Provider forced streaming but client wants JSON
-  if (!clientRequestedStreaming && providerRequiresStreaming) {
-    const result = await handleForcedSSEToJson({ ...sharedCtx, providerResponse, sourceFormat, targetFormat: providerResponseFormat, customToolNames, trackDone, appendLog });
-    if (result) { streamController.handleComplete(); return result; }
-  }
-
-  // True non-streaming response
-  if (!stream) {
+  if (!clientRequestedStreaming) {
+    if (providerRequiresStreaming || stream) {
+      const result = await handleForcedSSEToJson({ ...sharedCtx, providerResponse, sourceFormat, targetFormat: providerResponseFormat, customToolNames, trackDone, appendLog });
+      if (result) { streamController.handleComplete(); return result; }
+    }
     const result = await handleNonStreamingResponse({ ...sharedCtx, providerResponse, sourceFormat, targetFormat: providerResponseFormat, reqLogger, toolNameMap, customToolNames, trackDone, appendLog });
     streamController.handleComplete();
     return result;
