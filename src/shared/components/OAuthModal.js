@@ -203,11 +203,8 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(regBody),
     });
-    // 4. Open popup; proxy auto-exchanges on callback, modal polls poll-status.
     setAuthData({ ...authData, proxyProvider: providerId });
-    setStep("waiting");
-    popupRef.current = window.open(authData.authUrl, "oauth_popup", "width=600,height=700");
-    if (!popupRef.current) setStep("input"); // popup blocked → fall back to manual paste
+    setStep("input");
   }, []);
 
   // Start OAuth flow
@@ -253,9 +250,7 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
 
         setDeviceData(data);
 
-        // Auto-open verification URL in new tab
         const verifyUrl = data.verification_uri_complete || data.verification_uri;
-        if (verifyUrl) window.open(verifyUrl, "_blank", "noopener,noreferrer");
 
         // Pass extraData for Kiro (contains _clientId, _clientSecret) and
         // Qoder (contains _qoderMachineId / _qoderNonce — needed so mapTokens
@@ -368,29 +363,11 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
       }
 
       if (provider === "codex" && codexProxyActive) {
-        // Proxy active: callback will be handled server-side (auto-exchange) or via channels (fallback)
         setStep("waiting");
-        popupRef.current = window.open(data.authUrl, "oauth_popup", "width=600,height=700");
-        if (!popupRef.current) {
-          setStep("input");
-        }
       } else if (provider === "xai" && xaiProxyActive) {
         setStep("waiting");
-        popupRef.current = window.open(data.authUrl, "oauth_popup", "width=600,height=700");
-        if (!popupRef.current) {
-          setStep("input");
-        }
-      } else if (!isLocalhost || provider === "codex" || provider === "xai") {
-        // Non-localhost or proxy failed: manual input mode
-        setStep("input");
-        window.open(data.authUrl, "_blank");
       } else {
-        // Localhost (non-Codex/xAI): Open popup and wait for message
-        setStep("waiting");
-        popupRef.current = window.open(data.authUrl, "oauth_popup", "width=600,height=700");
-        if (!popupRef.current) {
-          setStep("input");
-        }
+        setStep("input");
       }
     } catch (err) {
       setError(err.message);
@@ -786,6 +763,9 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
                   <Input value={authData?.authUrl || ""} readOnly className="flex-1 font-mono text-xs" />
                   <Button variant="secondary" icon={copied === "auth_url" ? "check" : "content_copy"} onClick={() => copy(authData?.authUrl, "auth_url")} disabled={!authData?.authUrl}>
                     Copy
+                  </Button>
+                  <Button variant="ghost" icon="open_in_new" onClick={() => window.open(authData?.authUrl, "_blank", "noopener,noreferrer")} disabled={!authData?.authUrl}>
+                    Open
                   </Button>
                 </div>
               </div>

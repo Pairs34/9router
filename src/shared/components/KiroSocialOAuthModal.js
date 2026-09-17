@@ -43,10 +43,8 @@ export default function KiroSocialOAuthModal({ isOpen, provider, onSuccess, onCl
         setAuthUrl(data.authUrl);
         setStep("input");
 
-        // Auto-open browser once per modal session.
         if (!openedRef.current) {
           openedRef.current = true;
-          window.open(data.authUrl, "_blank");
         }
       } catch (err) {
         setError(err.message);
@@ -138,6 +136,13 @@ export default function KiroSocialOAuthModal({ isOpen, provider, onSuccess, onCl
                     onClick={() => copy(authUrl, "auth_url")}
                   >
                     Copy
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    icon="open_in_new"
+                    onClick={() => window.open(authUrl, "_blank", "noopener,noreferrer")}
+                  >
+                    Open
                   </Button>
                 </div>
               </div>

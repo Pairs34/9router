@@ -263,7 +263,26 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
   }
   if (!shouldFallback) return { shouldFallback: false, cooldownMs: 0 };
 
-  const reason = typeof errorText === "string" ? errorText.slice(0, 100) : "Provider error";
+  let reason = typeof errorText === "string" ? errorText.slice(0, 100) : "Provider error";
+  if (typeof errorText === "string" && status === 403) {
+    try {
+      const parsed = JSON.parse(errorText);
+      const details = parsed?.error?.details || [];
+      for (const d of details) {
+        const valUrl = d?.metadata?.validation_url || d?.metadata?.validationUrl || d?.validationUrl;
+        if (valUrl && typeof valUrl === "string" && valUrl.startsWith("http")) {
+          reason = valUrl;
+          break;
+        }
+      }
+    } catch {}
+    if (!reason.startsWith("http")) {
+      const match = errorText.match(/https:\/\/(?:accounts\.google\.com[^\s"'\\]+|[^\s"'\\]*validation[^\s"'\\]*)/);
+      if (match) {
+        reason = match[0];
+      }
+    }
+  }
   const lockUpdate = buildModelLockUpdate(githubResetAtMs ? null : model, cooldownMs);
 
   await updateProviderConnection(connectionId, {

@@ -210,22 +210,46 @@ async function probeCloudCodeAssistAccess(connection, accessToken, effectiveProx
     const bodyText = await res.text().catch(() => "");
     try {
       const parsed = JSON.parse(bodyText);
-      const ineligible = (parsed.ineligibleTiers || []).find((t) => t.reasonCode === "VALIDATION_REQUIRED");
-      if (ineligible?.validationUrl) {
-        return {
-          valid: false,
-          error: ineligible.validationUrl,
-          status: 403,
-        };
+      const hasStandardTier = parsed.currentTier?.id === "standard-tier" ||
+        (parsed.allowedTiers || []).some(t => t.id === "standard-tier" || t.isDefault);
+      if (!hasStandardTier) {
+        const ineligible = (parsed.ineligibleTiers || []).find((t) => t.reasonCode === "VALIDATION_REQUIRED");
+        if (ineligible?.validationUrl) {
+          return {
+            valid: false,
+            error: ineligible.validationUrl,
+            status: 403,
+          };
+        }
       }
     } catch {}
     return { valid: true, error: null };
   }
 
   const bodyText = await res.text().catch(() => "");
+  let errorMsg = parseProviderErrorMessage(bodyText, `API returned ${res.status}`);
+  if (res.status === 403 && bodyText) {
+    try {
+      const parsed = JSON.parse(bodyText);
+      const details = parsed?.error?.details || [];
+      for (const d of details) {
+        const valUrl = d?.metadata?.validation_url || d?.metadata?.validationUrl || d?.validationUrl;
+        if (valUrl && typeof valUrl === "string" && valUrl.startsWith("http")) {
+          errorMsg = valUrl;
+          break;
+        }
+      }
+    } catch {}
+    if (!errorMsg.startsWith("http")) {
+      const match = bodyText.match(/https:\/\/(?:accounts\.google\.com[^\s"'\\]+|[^\s"'\\]*validation[^\s"'\\]*)/);
+      if (match) {
+        errorMsg = match[0];
+      }
+    }
+  }
   return {
     valid: false,
-    error: parseProviderErrorMessage(bodyText, `API returned ${res.status}`),
+    error: errorMsg,
     status: res.status,
   };
 }
@@ -884,6 +908,14 @@ export async function testSingleConnection(id) {
         : null
       : new Date().toISOString(),
   };
+
+  if (result.valid) {
+    Object.keys(connection).forEach((k) => {
+      if (k.startsWith("modelLock_")) {
+        updateData[k] = null;
+      }
+    });
+  }
 
   if (result.refreshed && result.newTokens) {
     if (result.newTokens.accessToken) updateData.accessToken = result.newTokens.accessToken;
