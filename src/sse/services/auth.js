@@ -263,7 +263,7 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
   }
   if (!shouldFallback) return { shouldFallback: false, cooldownMs: 0 };
 
-  let reason = typeof errorText === "string" ? errorText.slice(0, 100) : "Provider error";
+  let reason = typeof errorText === "string" ? errorText.slice(0, 200) : "Provider error";
   if (typeof errorText === "string" && status === 403) {
     try {
       const parsed = JSON.parse(errorText);
