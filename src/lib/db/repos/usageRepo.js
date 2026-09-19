@@ -47,7 +47,15 @@ function scheduleStatsEvent(event, delayMs = 150) {
 
 function getLocalDateKey(timestamp) {
   const d = timestamp ? new Date(timestamp) : new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const timeZone = process.env.TZ || "Europe/Istanbul";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const get = (t) => parts.find((p) => p.type === t)?.value || "00";
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 function addToCounter(target, key, values) {
@@ -567,9 +575,14 @@ export async function getUsageStats(period = "all") {
     // 24h / today: live history
     let cutoff;
     if (period === "today") {
-      const startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
-      cutoff = startOfDay.toISOString();
+      const timeZone = process.env.TZ || "Europe/Istanbul";
+      const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).formatToParts(new Date());
+      const get = (t) => parts.find((p) => p.type === t).value;
+      const h = parseInt(get("hour"), 10);
+      const m = parseInt(get("minute"), 10);
+      const s = parseInt(get("second"), 10);
+      const elapsedMs = (h * 3600 + m * 60 + s) * 1000 + (Date.now() % 1000);
+      cutoff = new Date(Date.now() - elapsedMs).toISOString();
     } else {
       cutoff = new Date(Date.now() - PERIOD_MS["24h"]).toISOString();
     }
@@ -658,18 +671,23 @@ export async function getUsageStats(period = "all") {
   return stats;
 }
 
-export async function getChartData(period = "7d") {
+export async function getChartData(period = "7d", tz = null) {
   const db = await getAdapter();
   const now = Date.now();
+  const timeZone = tz || process.env.TZ || "Europe/Istanbul";
 
   if (period === "today") {
     const bucketCount = 24;
     const bucketMs = 3600000;
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const startTime = startOfDay.getTime();
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).formatToParts(new Date());
+    const get = (t) => parts.find(p => p.type === t).value;
+    const h = parseInt(get("hour"), 10);
+    const m = parseInt(get("minute"), 10);
+    const s = parseInt(get("second"), 10);
+    const elapsedMs = (h * 3600 + m * 60 + s) * 1000 + (Date.now() % 1000);
+    const startTime = Date.now() - elapsedMs;
     const endTime = startTime + bucketCount * bucketMs;
-    const labelFn = (ts) => new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const labelFn = (ts) => new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone });
     const buckets = Array.from({ length: bucketCount }, (_, i) => ({ label: labelFn(startTime + i * bucketMs), tokens: 0, cost: 0 }));
 
     const rows = db.all(
@@ -691,7 +709,7 @@ export async function getChartData(period = "7d") {
   if (period === "24h") {
     const bucketCount = 24;
     const bucketMs = 3600000;
-    const labelFn = (ts) => new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const labelFn = (ts) => new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone });
     const startTime = now - bucketCount * bucketMs;
     const buckets = Array.from({ length: bucketCount }, (_, i) => ({ label: labelFn(startTime + i * bucketMs), tokens: 0, cost: 0 }));
 
@@ -710,18 +728,15 @@ export async function getChartData(period = "7d") {
   }
 
   const bucketCount = period === "7d" ? 7 : period === "30d" ? 30 : 60;
-  const today = new Date();
-  const labelFn = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const labelFn = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone });
 
-  // Build map of dateKey → day data
   const dayRows = loadDaysInRange(db, bucketCount);
   const dayMap = {};
   for (const r of dayRows) dayMap[r.dateKey] = parseJson(r.data, {});
 
   return Array.from({ length: bucketCount }, (_, i) => {
-    const d = new Date(today);
-    d.setDate(d.getDate() - (bucketCount - 1 - i));
-    const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const d = new Date(Date.now() - (bucketCount - 1 - i) * 86400000);
+    const dateKey = getLocalDateKey(d);
     const dayData = dayMap[dateKey];
     return {
       label: labelFn(d),
@@ -732,8 +747,20 @@ export async function getChartData(period = "7d") {
 }
 
 function formatLogDate(date = new Date()) {
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${pad(date.getDate())}-${pad(date.getMonth() + 1)}-${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  const timeZone = process.env.TZ || "Europe/Istanbul";
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(date);
+  const get = (t) => parts.find((p) => p.type === t)?.value || "00";
+  return `${get("day")}-${get("month")}-${get("year")} ${get("hour")}:${get("minute")}:${get("second")}`;
 }
 
 // No-op: request log is now derived from usageHistory table on read.

@@ -81,7 +81,14 @@ function finalize(totals) {
 export function getPxpipeStats({ timelineDays = 30, recentLimit = 100 } = {}) {
   const events = readPxpipeEvents();
   const now = Date.now();
-  const startOfToday = new Date(new Date(now).setHours(0, 0, 0, 0)).getTime();
+  const timeZone = process.env.TZ || "Europe/Istanbul";
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).formatToParts(new Date(now));
+  const get = (t) => parts.find(p => p.type === t).value;
+  const h = parseInt(get("hour"), 10);
+  const m = parseInt(get("minute"), 10);
+  const s = parseInt(get("second"), 10);
+  const elapsedMs = (h * 3600 + m * 60 + s) * 1000 + (now % 1000);
+  const startOfToday = now - elapsedMs;
 
   const windows = {
     all: emptyTotals(),
@@ -94,7 +101,8 @@ export function getPxpipeStats({ timelineDays = 30, recentLimit = 100 } = {}) {
   const timeline = new Map();
   for (let i = timelineDays - 1; i >= 0; i--) {
     const day = new Date(startOfToday - i * DAY_MS);
-    timeline.set(day.toISOString().slice(0, 10), { date: day.toISOString().slice(0, 10), tokensSavedEst: 0, compressed: 0, requests: 0 });
+    const dayStr = day.toLocaleDateString("en-CA", { timeZone });
+    timeline.set(dayStr, { date: dayStr, tokensSavedEst: 0, compressed: 0, requests: 0 });
   }
 
   for (const ev of events) {
@@ -104,7 +112,7 @@ export function getPxpipeStats({ timelineDays = 30, recentLimit = 100 } = {}) {
     if (ev.ts >= now - 7 * DAY_MS) accumulate(windows.last7d, ev);
     if (ev.ts >= now - 30 * DAY_MS) accumulate(windows.last30d, ev);
 
-    const key = new Date(ev.ts).toISOString().slice(0, 10);
+    const key = new Date(ev.ts).toLocaleDateString("en-CA", { timeZone });
     const bucket = timeline.get(key);
     if (bucket) {
       bucket.requests++;
