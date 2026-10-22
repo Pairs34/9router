@@ -193,6 +193,17 @@ function isPublicApi(pathname) {
   return PUBLIC_API_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
+function getCorsHeaders(request) {
+  const reqHeaders = request?.headers?.get?.("access-control-request-headers") || "*";
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD",
+    "Access-Control-Allow-Headers": reqHeaders,
+    "Access-Control-Expose-Headers": "*",
+    "Access-Control-Max-Age": "86400",
+  };
+}
+
 // Shared with src/proxy.js — the mimo login branch must respect dashboard auth.
 export { isAuthenticated };
 
@@ -202,10 +213,19 @@ export const __test__ = {
   extractApiKey,
   canAccessPublicLlmApi,
   canAccessLocalOnlyRoute,
+  getCorsHeaders,
 };
 
 export async function proxy(request) {
   const { pathname } = request.nextUrl;
+
+  // Handle CORS preflight for all incoming OPTIONS requests (allow everything)
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: getCorsHeaders(request),
+    });
+  }
 
   // Local-only gate for spawn-capable / host-secret routes.
   if (LOCAL_ONLY_PATHS.some((p) => pathname.startsWith(p))) {
@@ -223,7 +243,10 @@ export async function proxy(request) {
 
   if (isPublicLlmApi(pathname)) {
     if (await canAccessPublicLlmApi(request)) return NextResponse.next();
-    return NextResponse.json({ error: "API key required for remote API access" }, { status: 401 });
+    return NextResponse.json(
+      { error: "API key required for remote API access" },
+      { status: 401, headers: getCorsHeaders(request) }
+    );
   }
 
   // Deny-by-default for /api/* — public allow-list bypasses, everything else requires auth.
@@ -231,7 +254,10 @@ export async function proxy(request) {
     if (isPublicApi(pathname)) return NextResponse.next();
     if (await hasValidCliToken(request) || await isAuthenticated(request))
       return NextResponse.next();
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401, headers: getCorsHeaders(request) }
+    );
   }
 
   // Protect all dashboard routes
