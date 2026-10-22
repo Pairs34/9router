@@ -65,6 +65,7 @@ export default {
     { id: "claude-opus-4.5-agentic", name: "Claude Opus 4.5 (Agentic)" },
     { id: "claude-opus-4.5-thinking-agentic", name: "Claude Opus 4.5 (Thinking + Agentic)" },
     // Sonnet
+    { id: "claude-sonnet-5.5", name: "Claude Sonnet 5.5" },
     { id: "claude-sonnet-5", name: "Claude Sonnet 5" },
     { id: "claude-sonnet-4.5", name: "Claude Sonnet 4.5" },
     // Haiku
