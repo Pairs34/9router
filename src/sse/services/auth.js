@@ -272,36 +272,57 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
   if (!shouldFallback) return { shouldFallback: false, cooldownMs: 0 };
 
   let reason = typeof errorText === "string" ? errorText.slice(0, 200) : "Provider error";
-  if (typeof errorText === "string" && status === 403) {
+  let actionUrl = null;
+  let cleanMessage = null;
+
+  if (typeof errorText === "string") {
+    // Strip leading [status]: prefix if present before parsing JSON
+    const rawJson = errorText.replace(/^(?:❌\s*\w+\s*)?\[\d+\]:\s*/, "").trim();
     try {
-      const parsed = JSON.parse(errorText);
+      const parsed = JSON.parse(rawJson);
+      cleanMessage = parsed?.error?.message || parsed?.message || null;
       const details = parsed?.error?.details || [];
       for (const d of details) {
-        const valUrl = d?.metadata?.validation_url || d?.metadata?.validationUrl || d?.validationUrl;
-        if (valUrl && typeof valUrl === "string" && valUrl.startsWith("http")) {
-          reason = valUrl;
+        const meta = d?.metadata || {};
+        const urlCandidate = meta.appeal_url || meta.appealUrl ||
+                             meta.validation_url || meta.validationUrl ||
+                             meta.action_url || meta.actionUrl ||
+                             meta.url || meta.help_url ||
+                             d?.validationUrl || d?.appealUrl ||
+                             Object.values(meta).find(v => typeof v === "string" && v.startsWith("http"));
+        if (urlCandidate && typeof urlCandidate === "string" && urlCandidate.startsWith("http")) {
+          actionUrl = urlCandidate;
           break;
         }
       }
     } catch {}
-    if (!reason.startsWith("http")) {
-      const match = errorText.match(/https:\/\/(?:accounts\.google\.com[^\s"'\\]+|[^\s"'\\]*validation[^\s"'\\]*)/);
+
+    if (!actionUrl) {
+      const match = errorText.match(/https?:\/\/[^\s"'\\<>]+(?:\b|\/)/);
       if (match) {
-        reason = match[0];
+        actionUrl = match[0];
       }
     }
-    if (!reason.startsWith("http")) {
+
+    if (!actionUrl) {
       if (errorText.includes("RESTRICTED_AGE") || errorText.includes("18 years old") || errorText.includes("verified your age")) {
         const email = conn?.email;
-        reason = email
+        actionUrl = email
           ? `https://accounts.google.com/AccountChooser?Email=${encodeURIComponent(email)}&continue=https://myaccount.google.com/age-verification`
           : "https://myaccount.google.com/age-verification";
       } else if (errorText.includes("Verify your account") || errorText.includes("VALIDATION_REQUIRED")) {
         const email = conn?.email;
-        reason = email
+        actionUrl = email
           ? `https://accounts.google.com/AccountChooser?Email=${encodeURIComponent(email)}&continue=https://developers.google.com/gemini-code-assist/auth/auth_success_gemini`
           : "https://accounts.google.com/";
       }
+    }
+
+    if (actionUrl) {
+      const baseMsg = cleanMessage || errorText.replace(actionUrl, "").replace(/^(?:❌\s*\w+\s*)?\[\d+\]:\s*/, "").trim();
+      reason = baseMsg ? `${baseMsg.slice(0, 150)} ${actionUrl}` : actionUrl;
+    } else if (cleanMessage) {
+      reason = cleanMessage.slice(0, 200);
     }
   }
   const lockUpdate = buildModelLockUpdate(githubResetAtMs ? null : model, cooldownMs);

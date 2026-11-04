@@ -1075,6 +1075,8 @@ export default function ProviderDetailPage() {
                 isOAuth={isOAuth}
                 isFirst={index === 0}
                 isLast={index === connections.length - 1}
+                onRefresh={fetchConnections}
+                onUpdate={(updates) => setConnections(prev => prev.map(c => c.id === conn.id ? { ...c, ...updates } : c))}
                 onMoveUp={() => handleSwapPriority(index, index - 1)}
                 onMoveDown={() => handleSwapPriority(index, index + 1)}
                 onToggleActive={(isActive) => handleUpdateConnectionStatus(conn.id, isActive)}

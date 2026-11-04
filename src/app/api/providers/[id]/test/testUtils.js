@@ -255,23 +255,23 @@ async function probeCloudCodeAssistAccess(connection, accessToken, effectiveProx
     const bodyText = await res.text().catch(() => "");
     try {
       const parsed = JSON.parse(bodyText);
-      const ineligible = (parsed.ineligibleTiers || []).find((t) => t.validationUrl || t.reasonCode === "RESTRICTED_AGE" || t.reasonCode === "VALIDATION_REQUIRED") || (parsed.ineligibleTiers || [])[0];
+      const ineligible = (parsed.ineligibleTiers || []).find((t) => t.validationUrl || t.appealUrl || t.actionUrl || t.reasonCode === "RESTRICTED_AGE" || t.reasonCode === "VALIDATION_REQUIRED" || t.reasonCode === "TOS_VIOLATION") || (parsed.ineligibleTiers || [])[0];
       if (ineligible) {
-        if (ineligible.validationUrl) {
-          return {
-            valid: false,
-            error: ineligible.validationUrl,
-            status: 403,
-          };
+        let valUrl = ineligible.validationUrl || ineligible.appealUrl || ineligible.actionUrl;
+        if (ineligible.metadata) {
+          valUrl = valUrl || ineligible.metadata.appeal_url || ineligible.metadata.validation_url || ineligible.metadata.action_url || Object.values(ineligible.metadata).find(v => typeof v === "string" && v.startsWith("http"));
         }
-        if (ineligible.reasonCode === "RESTRICTED_AGE" || (ineligible.reasonMessage && ineligible.reasonMessage.includes("18 years"))) {
+        if (!valUrl && (ineligible.reasonCode === "RESTRICTED_AGE" || (ineligible.reasonMessage && ineligible.reasonMessage.includes("18 years")))) {
           const email = connection.email;
-          const ageUrl = email
+          valUrl = email
             ? `https://accounts.google.com/AccountChooser?Email=${encodeURIComponent(email)}&continue=https://myaccount.google.com/age-verification`
             : "https://myaccount.google.com/age-verification";
+        }
+        if (valUrl) {
+          const msg = ineligible.reasonMessage || ineligible.reasonCode || "Doğrulama gerekli";
           return {
             valid: false,
-            error: ageUrl,
+            error: `${msg} ${valUrl}`.trim(),
             status: 403,
           };
         }
@@ -296,33 +296,57 @@ async function probeCloudCodeAssistAccess(connection, accessToken, effectiveProx
 
   const bodyText = await res.text().catch(() => "");
   let errorMsg = parseProviderErrorMessage(bodyText, `API returned ${res.status}`);
-  if (res.status === 403 && bodyText) {
+  let actionUrl = null;
+
+  if (bodyText) {
     try {
       const parsed = JSON.parse(bodyText);
       const details = parsed?.error?.details || [];
       for (const d of details) {
-        const valUrl = d?.metadata?.validation_url || d?.metadata?.validationUrl || d?.validationUrl;
-        if (valUrl && typeof valUrl === "string" && valUrl.startsWith("http")) {
-          errorMsg = valUrl;
+        const meta = d?.metadata || {};
+        const urlCandidate = meta.appeal_url || meta.appealUrl ||
+                             meta.validation_url || meta.validationUrl ||
+                             meta.action_url || meta.actionUrl ||
+                             meta.url || meta.help_url ||
+                             d?.validationUrl || d?.appealUrl ||
+                             Object.values(meta).find(v => typeof v === "string" && v.startsWith("http"));
+        if (urlCandidate && typeof urlCandidate === "string" && urlCandidate.startsWith("http")) {
+          actionUrl = urlCandidate;
           break;
         }
       }
     } catch {}
-    if (!errorMsg.startsWith("http")) {
-      const match = bodyText.match(/https:\/\/(?:accounts\.google\.com[^\s"'\\]+|[^\s"'\\]*validation[^\s"'\\]*)/);
+
+    if (!actionUrl) {
+      const match = bodyText.match(/https?:\/\/[^\s"'\\<>]+(?:\b|\/)/);
       if (match) {
-        errorMsg = match[0];
+        actionUrl = match[0];
       }
     }
-    if (!errorMsg.startsWith("http")) {
+
+    if (!actionUrl) {
       if (bodyText.includes("RESTRICTED_AGE") || bodyText.includes("18 years old") || bodyText.includes("verified your age")) {
         const email = connection.email;
-        errorMsg = email
+        actionUrl = email
           ? `https://accounts.google.com/AccountChooser?Email=${encodeURIComponent(email)}&continue=https://myaccount.google.com/age-verification`
           : "https://myaccount.google.com/age-verification";
+      } else if (bodyText.includes("Verify your account") || bodyText.includes("VALIDATION_REQUIRED")) {
+        const email = connection.email;
+        actionUrl = email
+          ? `https://accounts.google.com/AccountChooser?Email=${encodeURIComponent(email)}&continue=https://developers.google.com/gemini-code-assist/auth/auth_success_gemini`
+          : "https://accounts.google.com/";
       }
     }
   }
+
+  if (actionUrl) {
+    if (errorMsg && errorMsg !== actionUrl && !errorMsg.includes(actionUrl)) {
+      errorMsg = `${errorMsg} ${actionUrl}`;
+    } else {
+      errorMsg = actionUrl;
+    }
+  }
+
   return {
     valid: false,
     error: errorMsg,

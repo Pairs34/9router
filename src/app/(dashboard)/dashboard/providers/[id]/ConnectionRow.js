@@ -7,10 +7,59 @@ import PropTypes from "prop-types";
 import { Badge, Toggle, Tooltip } from "@/shared/components";
 import CooldownTimer from "./CooldownTimer";
 
-export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMoveUp, onMoveDown, onToggleActive, onUpdateProxy, onEdit, onDelete, oneByOneStatus = null, autoPing = null }) {
+function extractUrlAndMessage(text) {
+  if (!text || typeof text !== "string") return { url: null, message: "" };
+  const urlMatch = text.match(/https?:\/\/[^\s"'<>\)]+/);
+  const url = urlMatch ? urlMatch[0] : null;
+  let message = text;
+  if (url) {
+    message = text.replace(url, "").trim();
+  }
+  message = message.replace(/^(?:❌\s*\w+\s*)?\[\d+\]:\s*/, "").trim();
+  if (message.startsWith("{") && message.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(message);
+      message = parsed?.error?.message || parsed?.message || message;
+    } catch {}
+  }
+  return { url, message };
+}
+
+function getUrlButtonLabel(url) {
+  if (!url) return "Doğrula (Aç)";
+  const lower = url.toLowerCase();
+  if (lower.includes("appeal") || lower.includes("form")) return "İtiraz Et (Aç)";
+  if (lower.includes("age")) return "Yaş Doğrula (Aç)";
+  return "Doğrula (Aç)";
+}
+
+export default function ConnectionRow({
+  connection,
+  proxyPools,
+  isOAuth,
+  isFirst,
+  isLast,
+  onMoveUp,
+  onMoveDown,
+  onToggleActive,
+  onUpdateProxy,
+  onEdit,
+  onDelete,
+  oneByOneStatus = null,
+  autoPing = null,
+  onRefresh = null,
+  onUpdate = null,
+}) {
   const [showProxyDropdown, setShowProxyDropdown] = useState(false);
   const [updatingProxy, setUpdatingProxy] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
+  const [localError, setLocalError] = useState(connection.lastError);
+  const [localStatus, setLocalStatus] = useState(connection.testStatus);
+
+  useEffect(() => {
+    setLocalError(connection.lastError);
+    setLocalStatus(connection.testStatus);
+  }, [connection.lastError, connection.testStatus]);
   const proxyDropdownRef = useRef(null);
   const proxyBtnRef = useRef(null);
   const [proxyDropdownStyle, setProxyDropdownStyle] = useState(null);
@@ -123,9 +172,17 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
       const res = await fetch(`/api/providers/${connection.id}/test`, { method: "POST" });
       const data = await res.json();
       if (data.valid) {
-        window.location.reload();
+        setLocalError(null);
+        setLocalStatus("active");
+        if (onRefresh) onRefresh();
+        else window.location.reload();
       } else {
-        alert(data.error ? `Doğrulama henüz tamamlanmadı: ${data.error}` : "Hesap henüz aktifleşmedi.");
+        const err = data.error || "Hesap henüz aktifleşmedi.";
+        setLocalError(err);
+        setLocalStatus("error");
+        if (onUpdate) {
+          onUpdate({ lastError: err, testStatus: "error" });
+        }
       }
     } catch (e) {
       alert(`Test hatası: ${e.message}`);
@@ -242,49 +299,52 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
               </Badge>
             )}
             {isCooldown && connection.isActive !== false && <CooldownTimer until={modelLockUntil} />}
-            {connection.lastError && connection.isActive !== false && (
-              connection.lastError.startsWith("http") ? (
-                <div className="flex items-center gap-1.5">
-                  <a
-                    href={connection.lastError}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-500 hover:bg-amber-500/20 underline"
-                  >
-                    Doğrula (Aç)
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => navigator.clipboard.writeText(connection.lastError)}
-                    className="rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-500 hover:bg-amber-500/20"
-                  >
-                    Kopyala
-                  </button>
+            {localError && connection.isActive !== false && (() => {
+              const { url, message } = extractUrlAndMessage(localError);
+              const label = getUrlButtonLabel(url);
+              return (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {message ? (
+                    <span className="max-w-full truncate text-xs text-red-500 sm:max-w-[300px]" title={message}>
+                      {message}
+                    </span>
+                  ) : null}
+                  {url && (
+                    <>
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-500 hover:bg-amber-500/20 underline"
+                      >
+                        {label}
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => navigator.clipboard.writeText(url)}
+                        className="rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-500 hover:bg-amber-500/20"
+                        title="Linki Kopyala"
+                      >
+                        Kopyala
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
                     disabled={testingConnection}
                     onClick={handleTestConnection}
-                    className="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-xs font-medium text-emerald-500 hover:bg-emerald-500/20 disabled:opacity-50"
+                    className={`rounded border px-1.5 py-0.5 text-xs font-medium disabled:opacity-50 ${
+                      url
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20"
+                        : "border-primary/30 bg-primary/10 text-primary hover:bg-primary/20"
+                    }`}
+                    title="Bağlantıyı test et"
                   >
                     {testingConnection ? "..." : "Kontrol Et"}
                   </button>
                 </div>
-              ) : (
-                <div className="flex items-center gap-1.5">
-                  <span className="max-w-full truncate text-xs text-red-500 sm:max-w-[300px]" title={connection.lastError}>
-                    {connection.lastError}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={testingConnection}
-                    onClick={handleTestConnection}
-                    className="rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary hover:bg-primary/20 disabled:opacity-50"
-                  >
-                    {testingConnection ? "..." : "Kontrol Et"}
-                  </button>
-                </div>
-              )
-            )}
+              );
+            })()}
             <span className="text-xs text-text-muted">#{connection.priority}</span>
             {connection.globalPriority && (
               <span className="text-xs text-text-muted">Auto: {connection.globalPriority}</span>
@@ -431,6 +491,8 @@ ConnectionRow.propTypes = {
     state: PropTypes.string,
     error: PropTypes.string,
   }),
+  onRefresh: PropTypes.func,
+  onUpdate: PropTypes.func,
   autoPing: PropTypes.shape({
     isActive: PropTypes.bool,
     provider: PropTypes.string,
